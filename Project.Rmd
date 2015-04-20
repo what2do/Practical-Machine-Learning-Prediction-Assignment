@@ -1,0 +1,130 @@
+---
+title: "Practical Machine Learning Prediction Assignment"
+output: 
+  html_document:
+    keep_md: true
+---
+
+##Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible 
+to collect a large amount of data about personal activity relatively 
+inexpensively. These type of devices are part of the quantified self movement &#45; 
+a group of enthusiasts who take measurements about themselves regularly to 
+improve their health, to find patterns in their behavior, or because they are 
+tech geeks. One thing that people regularly do is quantify how much of a 
+particular activity they do, but they rarely quantify how well they do it.
+
+This project uses data from accelerometers on the belt, forearm, arm, and 
+dumbell of 6 participants to predict the manner in which they did the exercise. 
+
+
+##Load data
+```{r warning=FALSE}
+#Load the neccessary libraries
+library(caret)
+library(randomForest)
+
+#Download and load train data
+trainUrl <-"http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+trainFile <- "./data/pml-training.csv"
+
+#If data folder does not exists, create data folder
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+
+#If data file does not exists, then download the data file
+if (!file.exists(trainFile)) {
+  download.file(trainUrl, destfile=trainFile)
+}
+
+#Load train data
+trainData <- read.csv(trainFile)
+
+str(trainData)
+```
+
+##Clean data
+```{r warning=FALSE}
+#Remove NearZeroVariance Variables
+nzv <- nearZeroVar(trainData)
+trainData <- trainData[, -nzv]
+
+#Identify columns with missing values.
+hasMissing <- sapply(trainData, function (x) any(is.na(x) | x == ""))
+
+#Select columns that contains classe, belt, arm, dumbbell and forearm
+selectedColumns <- !hasMissing & grepl("classe|belt|[^(fore)]arm|dumbbell|forearm", names(hasMissing))
+Predictors <- names(hasMissing)[selectedColumns]
+Predictors
+
+trainData <- trainData[,Predictors]
+```
+
+Split the cleaned training set into 3/4 for training and 1/4 for validation. 
+The validation data set will be used to conduct cross validation.
+```{r}
+set.seed(123456) # For reproducibile purpose
+dp <- createDataPartition(trainData$classe, p=3/4, list=F)
+trainSet <- trainData[dp, ]
+validationSet <- trainData[-dp, ]
+```
+
+##Data Modeling
+Selected Random Forest algorithm because it automatically selects important variables and is robust to correlated covariates & outliers. Uses 5-fold cross validation and 250 trees when applying the algorithm.
+```{r}
+controlRf <- trainControl(method="cv", 5)
+fit <- train(classe ~ ., data=trainSet, method="rf", trControl=controlRf, ntree=250)
+fit
+fit$finalModel
+```
+
+Apply the model to the validation set and show the confusion matrix to compare the predicted versus the actual labels.
+```{r}
+predictRf <- predict(fit, validationSet)
+
+confusionMatrix(validationSet$classe, predictRf)
+```
+
+The estimated accuracy of the model is 99.35% and the estimated out-of-sample error is 0.65%.
+The out of sample error is calculated as 1 - accuracy for predictions made against the cross-validation set. Considering that the test set is a sample size of 20, an accuracy rate above 99% is sufficient and do not require to trying of additional algorithms.
+
+#Prediciting with Testing Dataset
+```{r}
+#Download and load test data
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+testFile  <- "./data/pml-testing.csv"
+
+#If data file does not exists, then download the data file
+if (!file.exists(testFile)) {
+  download.file(testUrl, destfile=testFile)
+}
+
+#Load test data
+testData <- read.csv(testFile)
+
+dim(testData)
+
+#Apply the model to the test data set
+predictions <- predict(fit,testData)
+print(predictions)
+```
+
+#Generating Answers Files to Submit for Assignment
+Create the answers files for submission
+```{r}
+#If answers folder does not exists, create answers folder
+if (!file.exists("./answers")) {
+  dir.create("./answers")
+}
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("./answers/problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(predictions)
+```
